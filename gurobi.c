@@ -7,7 +7,7 @@
 
 #define GUR_ERROR "Gurobi error! Exiting\n"
 
-
+/*adds constraints for each fixed cell*/
 int addFixedConstraints (gameData * game, GRBenv ** env, GRBmodel ** model, int * error, int * ind, double * val, int bS) {
 	int i, j, v;
 	for (i = 0; i < bS; i++) {
@@ -28,6 +28,7 @@ int addFixedConstraints (gameData * game, GRBenv ** env, GRBmodel ** model, int 
 	return 1;
 }
 
+/* modular constraints for row, column or cell value*/
 int addConstraints (GRBenv ** env, GRBmodel ** model, int * error, int * ind, double * val, int bS, int a, int b, int c) {
 	int i, j, v;
 	for (i = 0; i < bS; i++) {
@@ -46,6 +47,8 @@ int addConstraints (GRBenv ** env, GRBmodel ** model, int * error, int * ind, do
 	return 1;
 }
 
+
+/*adds constraints for each block of cells*/
 int addBlockConstraints (GRBenv ** env, GRBmodel ** model, int * error, int * ind, double * val, int bS, int cols, int rows) {
 	int i, j, v, blockRow, blockCol, count;
 	for (v = 0; v < bS; v++) {
@@ -70,6 +73,7 @@ int addBlockConstraints (GRBenv ** env, GRBmodel ** model, int * error, int * in
 	return 1;
 }
 
+/*retrieves solution*/
 int solution (gameData * game, int * optimstatus, double * sol, int bS) {
 	int i, j, v;
 	if (*optimstatus == GRB_OPTIMAL) {
@@ -86,60 +90,42 @@ int solution (gameData * game, int * optimstatus, double * sol, int bS) {
 		return 1;
 	}
 	/* no solution found */
-	else if (*optimstatus == GRB_INF_OR_UNBD) {
-		/*printf("Model is infeasible or unbounded\n");*/
-		return -1;
-	}
-	/* error or calculation stopped */
 	else {
-		/*printf("Optimization was stopped early\n");*/
 		return -1;
 	}
 }
 
 
-
-int ilp(gameData* game, double* sol, int * ind, double* val, double* obj ,char * vtype)
-{
+/*initializes gurobi, adds constraints, tries to solve and returns solution*/
+int ilp(gameData* game, double* sol, int * ind, double* val, double* obj ,char * vtype) {
 	GRBenv   *env   = NULL;
 	GRBmodel *model = NULL;
 	int       error = 0;
 	int       optimstatus;
 	double    objval;
-
 	int i, bS, rows, cols, bS3, res = 0;
-
 	bS = game->bSize;
 	bS3 = bS*bS*bS;
 	cols = game->n;
 	rows = game->m;
-
-	/* Create environment - log file is ilp1.log */
-	error = GRBloadenv(&env, "ilp1.log");
+	error = GRBloadenv(&env, "ilp1.log"); /* Create environment - log file is ilp1.log */
 	if (error) {
 		printf("ERROR %d GRBloadenv(): %s\n", error, GRBgeterrormsg(env));
 		return 0;
 	}
-
 	error = GRBsetintparam(env, GRB_INT_PAR_LOGTOCONSOLE, 0);
 	if (error) {
 		printf("ERROR %d GRBsetintparam(): %s\n", error, GRBgeterrormsg(env));
 		return 0;
 	}
-
-	/* Create an empty model named "ilp1" */
-	error = GRBnewmodel(env, &model, "ilp1", 0, NULL, NULL, NULL, NULL, NULL);
+	error = GRBnewmodel(env, &model, "ilp1", 0, NULL, NULL, NULL, NULL, NULL); /* Create an empty model named "ilp1" */
 	if (error) {
 		printf("ERROR %d GRBnewmodel(): %s\n", error, GRBgeterrormsg(env));
 		return 0;
 	}
-
-
-	/* Add variables */
-	/* coefficients and variable types for cells */
-	for (i = 0; i < bS3; ++i)
+	for (i = 0; i < bS3; ++i) /* Add variables */
 	{
-		obj[i] = 0;
+		obj[i] = 0; /* coefficients and variable types for cells */
 		vtype[i] = GRB_BINARY;
 	}
 	error = GRBaddvars(model, bS3, 0, NULL, NULL, NULL, obj, NULL, NULL, vtype, NULL); /* add variables to model */
@@ -147,76 +133,40 @@ int ilp(gameData* game, double* sol, int * ind, double* val, double* obj ,char *
 		printf("ERROR %d GRBaddvars(): %s\n", error, GRBgeterrormsg(env));
 		return 0;
 	}
-
-	/* update the model - to integrate new variables */
-	error = GRBupdatemodel(model);
+	error = GRBupdatemodel(model); /* update the model - to integrate new variables */
 	if (error) {
 		printf("ERROR %d GRBupdatemodel(): %s\n", error, GRBgeterrormsg(env));
 		return 0;
 	}
-
-
-	/* First constraint: fixed cells */
-	addFixedConstraints(game, &env, &model, &error, ind, val, bS);
-
-	/* Second constraint: Each cell gets a value */
-	addConstraints(&env, &model, &error, ind, val, bS, bS*bS, bS, 1);
-
-	/* Third constraint: Each value must appear once in each row */
-	addConstraints(&env, &model, &error, ind, val, bS, bS, 1, bS*bS);
-
-
-	/* 4th constraint: Each value must appear once in each column */
-	addConstraints(&env, &model, &error, ind, val, bS, bS*bS, 1, bS);
-
-
-	/* 5th constraint: Each value must appear once in each block */
-	addBlockConstraints(&env, &model, &error, ind, val, bS, cols, rows);
-
-	/* Optimize model - need to call this before calculation */
-	error = GRBoptimize(model);
+	addFixedConstraints(game, &env, &model, &error, ind, val, bS); /* 1st constraint: fixed cells */
+	addConstraints(&env, &model, &error, ind, val, bS, bS*bS, bS, 1); /* 2nd constraint: Each cell gets a value */
+	addConstraints(&env, &model, &error, ind, val, bS, bS, 1, bS*bS); /* 3rd constraint: Each value must appear once in each row */
+	addConstraints(&env, &model, &error, ind, val, bS, bS*bS, 1, bS); /* 4th constraint: Each value must appear once in each column */
+	addBlockConstraints(&env, &model, &error, ind, val, bS, cols, rows);/* 5th constraint: Each value must appear once in each block */
+	error = GRBoptimize(model); /* Optimize model - need to call this before calculation */
 	if (error) {
 		printf("ERROR %d GRBoptimize(): %s\n", error, GRBgeterrormsg(env));
 		return 0;
 	}
-
-	/* Write model to 'ilp1.lp' - this is not necessary but very helpful */
-	error = GRBwrite(model, "ilp1.lp");
-	if (error) {
-		printf("ERROR %d GRBwrite(): %s\n", error, GRBgeterrormsg(env));
-		/*return 0;*/
-	}
-
-	/* Get solution information */
-	error = GRBgetintattr(model, GRB_INT_ATTR_STATUS, &optimstatus);
+	error = GRBgetintattr(model, GRB_INT_ATTR_STATUS, &optimstatus); /* Get solution information */
 	if (error) {
 		printf("ERROR %d GRBgetintattr(): %s\n", error, GRBgeterrormsg(env));
-		/*return 0;*/
 	}
-
-	/* get the objective -- the optimal result of the function */
-	error = GRBgetdblattr(model, GRB_DBL_ATTR_OBJVAL, &objval);
+	error = GRBgetdblattr(model, GRB_DBL_ATTR_OBJVAL, &objval); /* get the objective -- the optimal result of the function */
 	if (error) {
-		/*printf("ERROR %d GRBgettdblattr(): %s\n", error, GRBgeterrormsg(env));*/
 		return -1;
 	}
-
-	/* get the solution - the assignment to each variable */
-	error = GRBgetdblattrarray(model, GRB_DBL_ATTR_X, 0, bS3, sol);
+	error = GRBgetdblattrarray(model, GRB_DBL_ATTR_X, 0, bS3, sol); /* get the solution - the assignment to each variable */
 	if (error) {
-		/*printf("ERROR %d GRBgetdblattrarray(): %s\n", error, GRBgeterrormsg(env));*/
 		return -1;
 	}
-
-	/* get solution */
-	res  = solution(game, &optimstatus, sol, bS);
-	/* Free model and environment */
+	res  = solution(game, &optimstatus, sol, bS); /* get solution */
 	GRBfreemodel(model);
 	GRBfreeenv(env);
 	return res;
 }
 
-
+/*called by ilpSolver*/
 int gurobi_solver(gameData* game){
 	int res, bS, bS3;
 	double * sol, *val, *obj;

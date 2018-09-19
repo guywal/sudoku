@@ -1,8 +1,8 @@
 /*
  * GameAux.c
  *
- *  Created on: 21 Aug 2018
- *      Author: guywaldman
+ *  Functions assisting the functions of the Game module.
+ *
  */
 
 #include <string.h>
@@ -18,6 +18,9 @@
 #define ERROR_SOL "Puzzle solution erroneous\n"
 #define PUZ_SOLVED "Puzzle solved successfully\n"
 #define ALLOC_FAILED "Memory allocation failed\n"
+#define SCAN_FAILED "fscanf failed\n"
+#define PRINT_FAILED "fprintf failed\n"
+
 
 void checkAlloc(void * p) { /*check memory allocations*/
 	if (p == NULL) {
@@ -26,6 +29,21 @@ void checkAlloc(void * p) { /*check memory allocations*/
 	}
 }
 
+int checkScan(int check, int expect) {
+	if (check < expect) {
+		printf(SCAN_FAILED);
+		return 0;
+	}
+	return 1;
+}
+
+int checkPrint(int check) {
+	if (check < 0) {
+		printf(PRINT_FAILED);
+		return 0;
+	}
+	return 1;
+}
 
 gameData * initGame() {
 	gameData * game = (gameData*)malloc(sizeof(gameData));
@@ -54,11 +72,22 @@ void freeBoard(gameData * game) {
 	}
 }
 
+
 void freeGame(gameData* game) {
 	freeBoard(game);
 	freeList(game);
 }
 
+/*
+ * Receives two ints and allocates a game board accordingly. The board is "multi" times wide in order to keep more data for the puzzle cells.
+ * For example, we create a board 2 times wide and for cell <x,y>, its status is kept at cell <x + game->bSize,y> as an int (0-valid, 1-fixed, 2-erroneous).
+ *
+ * @param bSize - length of puzzle border
+ * @param multi - number of times we want the size of the board to be multiplied for saving more data about the cells
+ *
+ * @return
+ *  board - pointer to the two dimensional array of ints created
+ */
 int ** initBoard(int bSize, int multi) {
 	int i;
 	int *p;
@@ -82,12 +111,13 @@ void freeGameC(gameData * gameC) {
 	}
 }
 
+
 void copyGame(gameData ** gameC, gameData * game) {
 	int i, j;
 	*gameC = (gameData *)malloc(sizeof(gameData));
 	checkAlloc(*gameC);
 	(*gameC)->board = initBoard(game->bSize, 2);
-	for (i = 0; i < game->bSize * 2; i++) {
+	for (i = 0; i < game->bSize * 2; i++) { /*copy game board*/
 		for (j = 0; j < game->bSize; j++) {
 			(*gameC)->board[i][j] = game->board[i][j];
 		}
@@ -103,13 +133,17 @@ void copyGame(gameData ** gameC, gameData * game) {
 	(*gameC)->curr = NULL;
 }
 
-
-
+/*Change the game structure to represent a new puzzle in the given mode. Must be called after game->bSize was updated to the wanted value.
+ *
+ * @param game - Game structure
+ * @param mode - Wanted game mode: 0 - init, 1 - solve, 2 - edit
+ *
+ * */
 void newGame(gameData * game, int mode) {
 	if (game->board != NULL) {
 		freeGame(game); /*free board and list*/
 	}
-	if (mode != 0) {
+	if (mode != 0) { /*if not in init mode*/
 		game->board = initBoard(game->bSize, 2);
 	}
 	game->mode = mode;
@@ -118,7 +152,8 @@ void newGame(gameData * game, int mode) {
 	game->curr = game->head;
 }
 
-void ChangeCellsWithValTo(gameData * game, int num) { /*used for exhaustiveBT. changes all cells without value 0 to fixed*/
+/*Used by exhaustiveBT. Changes all cells without value 0 to be fixed*/
+void ChangeCellsWithValTo(gameData * game, int num) {
 	int i,j;
 	for (i = 0; i < game->bSize; ++i) {
 		for (j = 0; j < game->bSize; ++j) {
@@ -132,13 +167,17 @@ void ChangeCellsWithValTo(gameData * game, int num) { /*used for exhaustiveBT. c
 
 void printRowSep(gameData * game) {
 	int i;
-	for (i = 0; i < 4 * game->bSize + game->m + 1 /*+ ((game->m + 1)%2)*/ ; i++) {
+	for (i = 0; i < 4 * game->bSize + game->m + 1; i++) {
 		printf("-");
 	}
 	printf("\n");
 }
 
-
+/*
+ * @param x - col of cell as user sees it (starting at 1)
+ * @param y - row of cell as user sees it (starting at 1)
+ * @param z - value to change to
+ */
 int checkValid(gameData * game, int x, int y, int z) {
 	int i, j, cStart, rStart;
 	int** board = game->board;
@@ -162,22 +201,32 @@ int checkValid(gameData * game, int x, int y, int z) {
 	return 1;
 }
 
+/*
+ * Used by updateErrors to check for errors by cell.
+ */
 void handleError(gameData * game, int ** Arr, int i, int j, int Val) {
-	if (Arr[Val] != NULL) {
-		if (*(Arr[Val])==0) {
+	if (Arr[Val] != NULL) { /*if already passed on a cell with the same value, a pointer to it was saved to Arr at Val position*/
+		if (*(Arr[Val]) == 0) { /*if cell pointed to wasn't marked as error*/
 			*(Arr[Val]) = 2;
 			game->errors++;
 		}
-		if (game->board[i+game->bSize][j] == 0) {
+		if (game->board[i+game->bSize][j] == 0) { /*if current cell wasn't marked as error*/
 			game->board[i+game->bSize][j] = 2;
 			game->errors++;
 		}
 	}
-	else if (Val != 0) {
-		Arr[Val] = &game->board[i+game->bSize][j];
+	else if (Val != 0) { /*if no other cell was pointed to and value isn't 0*/
+		Arr[Val] = &game->board[i+game->bSize][j]; /*add a pointer to the current cell to Arr at Val position*/
 	}
 }
 
+/*
+ * Goes over the cells and checks if there are any errors for each of them in their row, cols and block. The int pointer arrays are used to hold
+ * pointers to the first cell with a certain value in each row, col or block. We go over each cell and check if a pointer was created at the position
+ * of its value, if so it means there is already a cell with the same value as the current one, and we need to update errors for both of them if needed.
+ * This is done in handleError.
+ *
+ */
 void updateErrors(gameData * game) {
 	int i, j, rowVal, colVal, blockJ, blockI, **rowArr = NULL, **colArr = NULL;
 	rowArr = (int**)calloc(game->bSize +1 ,sizeof(int*));
@@ -185,68 +234,26 @@ void updateErrors(gameData * game) {
 	colArr = (int**)calloc(game->bSize +1 ,sizeof(int*));
 	checkAlloc(colArr);
 	for (i = 0; i < game->bSize; ++i) {  /*row and col check*/
-		for (j = 0; j < game->bSize + 1; ++j) {
+		for (j = 0; j < game->bSize + 1; ++j) { /*erase pointer arrays*/
 			rowArr[j] = NULL;
 			colArr[j] = NULL;
 		}
 		for (j = 0; j < game->bSize; ++j) {
-			/*might need to create function inside @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
 			rowVal = game->board[j][i];
 			colVal = game->board[i][j];
 			handleError(game, rowArr, j, i, rowVal); /*row check by value*/
-			handleError(game, colArr, i, j, colVal);
-			/*if(rowArr[rowVal]!=NULL){
-				if (*(rowArr[rowVal])==0) {
-					*(rowArr[rowVal]) = 2;
-					errors++;
-				}
-				if (game->board[j+game->bSize][i]==0) {
-					game->board[j+game->bSize][i]=2;
-					errors++;
-				}
-			}
-
-			else if (rowVal != 0) {
-				rowArr[rowVal] = &game->board[j+game->bSize][i];
-			}
-
-			if(colArr[colVal]!=NULL){
-				if (*(colArr[colVal])==0) {
-					*(colArr[colVal])=2;
-					errors++;
-				}
-				if (game->board[i+game->bSize][j]==0) {
-					game->board[i+game->bSize][j]=2;
-					errors++;
-				}
-			}
-			else if (colVal != 0) {
-				colArr[colVal] = &game->board[i+game->bSize][j];
-			}*/
+			handleError(game, colArr, i, j, colVal); /*col check by value*/
 		}
 	}
 	for (blockI = 0; blockI < game->n; blockI++) {
 		for (blockJ = 0; blockJ < game->m; blockJ++) {
-			for (j = 0; j < game->bSize + 1; ++j) {
+			for (j = 0; j < game->bSize + 1; ++j) { /*erase pointer array*/
 				colArr[j] = NULL;
 			}
 			for (i = blockI*game->n; i < (blockI+1)*game->n; i++) {
-				for (j = blockJ*game->m; j < (blockJ+1)*game->m; j++) {
+				for (j = blockJ*game->m; j < (blockJ+1)*game->m; j++) { /*block check by value*/
 					colVal = game->board[i][j];
 					handleError(game, colArr, i, j, colVal);
-					/*if(colArr[colVal]!=NULL){
-						if (*(colArr[colVal])==0) {
-							*(colArr[colVal]) = 2;
-							errors++;
-						}
-						if (game->board[i+game->bSize][j]==0) {
-							game->board[i+game->bSize][j]=2;
-							errors++;
-						}
-					}
-					else if (colVal != 0) {
-						colArr[colVal] = &game->board[i+game->bSize][j];
-					}*/
 				}
 			}
 		}
@@ -255,6 +262,19 @@ void updateErrors(gameData * game) {
 	free(colArr);
 }
 
+/*
+ * Used by updateSetErrors. Let's it know if an error with the checked cell occurs by changed err int. Also, if an error occured it updates the status
+ * of the other cells to erroneous and adds the change to set command's node in the command list and updates errors field.
+ * Deals with deduction of errors as well.
+ *
+ * @param game - Game structure
+ * @param x - col of cell as user sees it (starting at 1)
+ * @param y - row of cell as user sees it (starting at 1)
+ * @param prev - value changed from
+ * @param z - value changed to
+ * @param err - pointer to an int that let's updateSetErrors know if an error was found
+ *
+ */
 void handleCellErrors(gameData * game, int x, int y, int prev, int z, int * err) {
 	if (z != 0 && game->board[x - 1][y - 1] == z) {
 		if (*err == 0) {
@@ -275,17 +295,32 @@ void handleCellErrors(gameData * game, int x, int y, int prev, int z, int * err)
 	}
 }
 
-/*use after changed the cells value in set command*/
+/*
+ * Use after you changed the cell's value in set command. Goes over the row, col and block of the cell changed and checks for errors with handleCellErrors.
+ * If an error was found, update the cell's status to "erroneous" and add the error change to the set command's node in the command list.
+ * Also update error field in gameData. Deals with deduction of errors as well.
+ *
+ * @param game - Game structure
+ * @param x - col of cell as user sees it (starting at 1)
+ * @param y - row of cell as user sees it (starting at 1)
+ * @param prev - value changed from
+ * @param z - value changed to
+ *
+ * @return
+ * 	1 - update successful
+ * 	0 - value wasn't changed
+ *
+ */
 int updateSetErrors(gameData * game, int x, int y, int prev, int z) {
 	int i, j, err = 0, cStart, rStart;
-	if (z == prev) {
+	if (z == prev) { /*value wasn't changed*/
 		return 0;
 	}
 	for (i = 0; i < game->bSize; i++) {
-		if (i != x - 1) {
+		if (i != x - 1) { /*don't check the cell given*/
 			handleCellErrors(game, i + 1, y, prev, z, &err);
 		}
-		if (i != y - 1) {
+		if (i != y - 1) { /*don't check the cell given*/
 			handleCellErrors(game, x, i + 1, prev, z, &err);
 		}
 	}
@@ -293,7 +328,7 @@ int updateSetErrors(gameData * game, int x, int y, int prev, int z) {
 	rStart = (y-1) - ((y-1) % game->m); /*starting row of inner block*/
 	for (i = cStart; i < cStart + game->n; i++) {
 		for (j = rStart; j < rStart + game->m; j++) {
-			if (i != x - 1 && j != y - 1) {
+			if (i != x - 1 && j != y - 1) { /*don't check the cell given*/
 				handleCellErrors(game, i + 1, j + 1, prev, z, &err);
 			}
 		}
@@ -311,6 +346,7 @@ int updateSetErrors(gameData * game, int x, int y, int prev, int z) {
 	return 1;
 }
 
+
 void updateEmpty(gameData * game, int prev, int z) {
 	if (z != 0) {
 			if (prev == 0) {
@@ -327,7 +363,7 @@ void updateEmpty(gameData * game, int prev, int z) {
 
 int checkInt(char * cmd) {
 	while(*cmd != '\0') {
-		if(*cmd < 48 || *cmd > 57) {
+		if(*cmd < 48 || *cmd > 57) { /*char doesn't represent digit 0-9*/
 			return 0;
 		}
 		cmd++;
@@ -335,21 +371,23 @@ int checkInt(char * cmd) {
 	return 1;
 }
 
+
 int checkArgs(char ** cmdArr, int min, int max, int len) {
 	int i;
-	for (i=0; i < len; i++){
-		if (!checkInt(cmdArr[i])){
+	for (i=0; i < len; i++){ /*number of args passed*/
+		if (!checkInt(cmdArr[i])){ /*if not int*/
 			return 0;
 		}
-		if (i <= 1 && ((atoi(cmdArr[i]) < min) || (atoi(cmdArr[i]) > max))) { /*for X/Y in set, hint and generate*/
+		if (i <= 1 && ((atoi(cmdArr[i]) < min) || (atoi(cmdArr[i]) > max))) { /*for X, Y in set, hint and generate commands*/
 			return 0;
 		}
-		if (i == 2 && ((atoi(cmdArr[i]) < min - 1) || (atoi(cmdArr[i]) > max))) { /*for Z in set*/
+		if (i == 2 && ((atoi(cmdArr[i]) < min - 1) || (atoi(cmdArr[i]) > max))) { /*for Z in set command*/
 			return 0;
 		}
 	}
 	return 1;
 }
+
 
 int checkFixed(gameData * game, int x, int y) {
 	if (game->mode == 1 && game->board[x + game->bSize - 1][y - 1] == 1) { /*only in solve mode*/
@@ -358,13 +396,16 @@ int checkFixed(gameData * game, int x, int y) {
 	return 0;
 }
 
+/*
+ *
+ */
 int checkIfSolved(gameData * game) {
-	if (game->numEmpty == 0 && game->mode == 1) {
-		if (!validate(game, 0)) {
+	if (game->numEmpty == 0 && game->mode == 1) { /*board has no empty cells and in solve mode*/
+		if (!validate(game, 0)) { /*if board unsolved*/
 			printf(ERROR_SOL);
 			return 0;
 		}
-		else {
+		else { /*board solved*/
 			printf(PUZ_SOLVED);
 			newGame(game, 0); /*init mode and new game*/
 			return 1;
@@ -375,6 +416,13 @@ int checkIfSolved(gameData * game) {
 
 
 
+/*
+ * Used by autofill to check if a cell has a single legal value (used on copy of the board). Checks all the value options and if only 1 is left returns it.
+ *
+ * @param gameC - copy of the game
+ * @param i - cell's column how developer sees it (starts at 0)
+ * @param j - cell's row how developer sees it (starts at 0)
+ */
 int singleValue(gameData * gameC, int i, int j) {
 	int options = gameC->bSize, r = 0, c = 0, cStart, rStart;
 	int * values = (int*)calloc(gameC->bSize, sizeof(int));
@@ -383,38 +431,38 @@ int singleValue(gameData * gameC, int i, int j) {
 		values[c] = 1;
 	}
 	for (c = 0; c < gameC->bSize; c++) {
-		if (gameC->board[c][j] != 0 && values[gameC->board[c][j] - 1] == 1) {
+		if (gameC->board[c][j] != 0 && values[gameC->board[c][j] - 1] == 1) { /*options in row*/
 			values[gameC->board[c][j] - 1] = 0;
 			options--;
 		}
-		if (gameC->board[i][c] != 0 && values[gameC->board[i][c] - 1] == 1) {
+		if (gameC->board[i][c] != 0 && values[gameC->board[i][c] - 1] == 1) { /*options in col*/
 			values[gameC->board[i][c] - 1] = 0;
 			options--;
 		}
-		if (options == 0) {
+		if (options == 0) { /*no more options for cell*/
 			free(values);
 			return 0;
 		}
 	}
-	cStart = (i) - ((i) % gameC->m); /*starting col of inner block*/
-	rStart = (j) - ((j) % gameC->n); /*starting row of inner block*/
-	for (c = cStart; c < cStart + gameC->m; c++) {
-		for (r = rStart; r < rStart + gameC->n; r++) {
-			if (gameC->board[c][r] != 0 && values[gameC->board[c][r] - 1] == 1) {
+	cStart = (i) - ((i) % gameC->n); /*starting col of inner block*/
+	rStart = (j) - ((j) % gameC->m); /*starting row of inner block*/
+	for (c = cStart; c < cStart + gameC->n; c++) {
+		for (r = rStart; r < rStart + gameC->m; r++) {
+			if (gameC->board[c][r] != 0 && values[gameC->board[c][r] - 1] == 1) { /*options in block*/
 				values[gameC->board[c][r] - 1] = 0;
 				options--;
-				if (options == 0) {
+				if (options == 0) { /*no more options for cell*/
 					free(values);
 					return 0;
 				}
 			}
 		}
 	}
-	if (options == 1) {
-		for (c = 0; c < gameC->bSize; c++) {
+	if (options == 1) { /*if only 1 option left after all the checks*/
+		for (c = 0; c < gameC->bSize; c++) { /*find the value and return it*/
 			if (values[c] == 1) {
 				free(values);
-				return c+1;
+				return c + 1;
 			}
 		}
 	}
@@ -422,15 +470,22 @@ int singleValue(gameData * gameC, int i, int j) {
 	return 0;
 }
 
+
 int ilpSolver(gameData * game) {
 	return gurobi_solver(game);
 }
 
-/*	dir == 1 to go forward
-	dir == -1 to go backward
-	i is column
-	j is row					*/
-void btMove(gameData * game,int * i, int * j, int dir, stack * stk, int* cell) {
+/*
+ * Used by exhaustiveBT to traverse the board.
+ * moves i,j in the direction dir.
+ * Adds or removes the cell to/from the stack depending on the direction.
+ *
+ * @param dir - direction to move: 1 - forward, -1 - backward
+ * @param i - cell's column how developer sees it (starts at 0)
+ * @param j - cell's row how developer sees it (starts at 0)
+ *
+ */
+void btMove(gameData * game, int * i, int * j, int dir, stack * stk, int * cell) {
 	if (dir == 1) {
 		if (*i == game->bSize - 1) { /*end of row*/
 			*i = 0;
@@ -440,7 +495,7 @@ void btMove(gameData * game,int * i, int * j, int dir, stack * stk, int* cell) {
 			(*i)++;
 		}
 		if (*j >= game->bSize) { /*push dummy cell*/
-			push(stk, *i, *j, 0);
+			push(stk, *i, *j, 0); /*add cell to stack*/
 		}
 		else {
 			push(stk,*i,*j,game->board[*i][*j]);
@@ -454,23 +509,31 @@ void btMove(gameData * game,int * i, int * j, int dir, stack * stk, int* cell) {
 		else { /*move to previous cell in row*/
 			(*i)--;
 		}
-		pop(stk,cell);
+		pop(stk,cell); /*remove cell from stack and save it*/
 	}
 }
 
+/*
+ * Used by numSols to find number of board solutions. Does so on a copy of the game.
+ * Check a cells options in order, puts a valid value in it and traverses the board using btMove.
+ *
+ * @return
+ * 	counter - number of solutions
+ *
+ */
 int exhaustiveBT(gameData * gameC) {
-	int i = 0, j = 0, k, counter=0 ,dir=1, valid = 0;
+	int i = 0, j = 0, k, counter = 0 ,dir = 1, valid = 0;
 	int cell[3] = {0};
 	stack * stk = (stack*)malloc(sizeof(stack));
 	checkAlloc(stk);
 	initStack(gameC,stk);
-	ChangeCellsWithValTo(gameC, 1);
+	ChangeCellsWithValTo(gameC, 1); /*mark cells with value as fixed so we don't change them*/
 	push(stk, 0, 0, gameC->board[0][0]);
 	while(!isEmpty(stk)){
-		top(stk, cell);
+		top(stk, cell); /*get the cell at the top of stack*/
 		i = cell[0];
 		j = cell[1];
-		if (gameC->board[gameC->bSize+i][j] != 0) { /*cell is fixed*/
+		if (gameC->board[gameC->bSize+i][j] != 0) { /*if cell is fixed*/
 			btMove(gameC, &i, &j, dir, stk, cell); /*move to next cell*/
 		}
 		else{
@@ -490,8 +553,8 @@ int exhaustiveBT(gameData * gameC) {
 				btMove(gameC, &i, &j, dir, stk, cell);
 			}
 		}
-		if (isFull(stk)) { /*if the board is solved, i==1 && y==gameC->bSize+1*/
-			counter++;
+		if (isFull(stk)) { /*if the board is solved*/
+			counter++; /*add 1 to counter of possible solutions*/
 			dir = -1;
 			btMove(gameC, &i, &j, dir, stk, cell);
 		}
@@ -500,3 +563,51 @@ int exhaustiveBT(gameData * gameC) {
 	freeStack(stk);
 	return counter;
 }
+
+
+void fillXcells(gameData * game, int x, int * res) {
+	int  k, f, i, j, numOfOnes, options = game->bSize;
+	int * values;
+	values = (int *)calloc(game->bSize, sizeof(int));
+	checkAlloc(values);
+	*res = 1;
+	for (f = 0; f < x; f++) { /*find x random cells to fill with valid values*/
+		options = game->bSize;
+		for (k = 0; k < game->bSize; k++) {
+			values[k] = 1;
+		}
+		do {
+			i = (rand() % game->bSize);
+			j = (rand() % game->bSize);
+		}
+		while (game->board[i][j] != 0); /*find empty cell*/
+		while (options > 0) { /*while still have value options*/
+			numOfOnes = (rand() % options) + 1; /*choose random value index*/
+			for (k = 1; k <= game->bSize; k++) {
+				if (values[k - 1] == 1) {
+					numOfOnes--;
+				}
+				if (numOfOnes == 0) { /*found the random chosen index of the value*/
+					break;
+				}
+			}
+			if (checkValid(game, i + 1, j + 1, k)) { /*random value is valid*/
+				game->board[i][j] = k;
+				break;
+			}
+			values[k - 1] = 0; /*random value isn't an option anymore for this cell*/
+			options--; /*one less option*/
+		}
+		if(game->board[i][j] == 0) { /*couldn't find random valid value*/
+			for(i = 0; i < game->bSize; i++) {
+				for(j = 0; j < game->bSize; j++) { /*clear board*/
+					game->board[i][j] = 0;
+				}
+			}
+			res = 0;
+			break;
+		}
+	}
+	free(values);
+}
+

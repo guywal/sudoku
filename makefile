@@ -8,25 +8,25 @@ GUROBI_LIB = -L/usr/local/lib/gurobi563/lib -lgurobi56
 $(EXEC): main.o Parser.o Game.o GameAux.o List.o Stack.o gurobi.o
 	gcc main.o Parser.o Game.o GameAux.o List.o Stack.o gurobi.o $(GUROBI_LIB) -o $@
 
-main.o: Parser.c Game.c Parser.h Game.h GameAux.c GameAux.h
+main.o: main.c Parser.c Parser.h Game.c Game.h GameAux.c GameAux.h
 	gcc $(COMP_FLAG) -c $*.c
 
-Game.o: List.c List.h GameAux.c GameAux.h 
+Game.o: Game.c Game.h List.c List.h GameAux.c GameAux.h 
 	gcc $(COMP_FLAG) -c $*.c
 
-GameAux.o: Game.c Game.h List.c List.h Stack.c Stack.h gurobi.c gurobi.h
+GameAux.o: GameAux.c GameAux.h Game.c Game.h List.c List.h Stack.c Stack.h gurobi.c gurobi.h
 	gcc $(COMP_FLAG) -c $*.c
 
-Parser.o: Game.c Game.h
+Parser.o: Parser.c Parser.h Game.c Game.h
 	gcc $(COMP_FLAG) -c $*.c
 
-List.o: Game.c Game.h GameAux.c GameAux.h
+List.o: List.c List.h Game.c Game.h GameAux.c GameAux.h
 	gcc $(COMP_FLAG) -c $*.c
 
-Stack.o: Game.c Game.h GameAux.c GameAux.h
+Stack.o: Stack.c Stack.h Game.c Game.h GameAux.c GameAux.h
 	gcc $(COMP_FLAG) -c $*.c
 
-gurobi.o: Game.c Game.h GameAux.c GameAux.h
+gurobi.o: gurobi.c gurobi.h Game.c Game.h GameAux.c GameAux.h
 	gcc $(COMP_FLAG) $(GUROBI_COMP) -c $*.c
 
 clean:
